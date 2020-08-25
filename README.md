@@ -37,9 +37,9 @@ hmmcompete -h
     
     --hstblout <f>  Save an output file similar to that of hmmsearch run with the --domtblout option. Will only report the best prediction/classification where available. Sequences not matched by any model are not reported. Alternative HMM matches are also ignored.
     
-	--htmout <f>    Save a HTML version of the output. Useful for web integration.
+    --htmout <f>    Save a HTML version of the output. Useful for web integration.
 	
-	-v              Print hmmcompete version and exit
+    -v              Print hmmcompete version and exit
 ```
 
 ## Output
