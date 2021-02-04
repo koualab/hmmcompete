@@ -1,0 +1,11 @@
+# Perl::Tidy files
+# databases
+# results
+# tests
+# vscode
+.perltidyrc
+.tidyall.d/*
+.tidyallrc
+.vscode/*
+t/*
+tidyall
