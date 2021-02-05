@@ -3,20 +3,23 @@
 # Version 0.1: 2017, May 1
 # Version 0.2: 2021, Feb 4
 
-# import the libraries
 use strict;
 use warnings;
 
 use Data::Dumper;
 use Getopt::Long;
+use Getopt::Declare;
 use Carp qw( croak );
 use English qw( -no_match_vars );
+use Pod::Usage;
 use Readonly;
 
 my $EMPTY  = q{};
 my $SPACE  = q{ };
 my $HYPHEN = q{-};
 my $SHARP  = q{#};
+
+our $VERSION = '0.2';
 
 Readonly my $LENCNT => 4;
 Readonly my $CUTLEN => 23;
@@ -37,37 +40,61 @@ my $TEMP = '/tmp';
 #############################################################################
 #               NOTHING SHOULD NEED CHANGING BELOW THIS LINE!
 #############################################################################
-our $VERSION = '1.0';
 my $hmmcompete_version = 'hmmcompete ' . $VERSION;
 
 # Process command line ------------------------------------------------------
-my (
-	$hmmdb,  $seqfile, $help,   $pfrdesc, $altpred,
-	$allseq, $pepreg,  $tblout, $vers,    $csv_stats,
-	$htmout, $hmmaln,  $inanot, $getprec, $fasout
-) = ();
-GetOptions(
-	'in|i=s'    => \$seqfile,
-	'hmm=s'     => \$hmmdb,
-	'out|o:s'   => \$csv_stats,
-	'help|h'    => \$help,
-	'desc|d'    => \$pfrdesc,
-	'altpred'   => \$altpred,
-	'allseq'    => \$allseq,
-	'pepreg'    => \$pepreg,
-	'version|v' => \$vers,
-	'hsout:s'   => \$tblout,
-	'htmout:s'  => \$htmout,
-	'fasout:s'  => \$fasout,
-	'hmmaln'    => \$hmmaln,
-	'inanot'    => \$inanot,
-	'getprec'   => \$getprec,
+my $args = Getopt::Declare->new(<<'EOSPEC') || exit 1;
 
-);
+	[strict]
+
+	-i[n] <infile:if>		Specify input fasta file [required]
+	--hmm     				Specify hmm database [required]
+	-o[ut] <outfile:of>		Output file. If not specified standard
+	-d[esc]					Display description
+	--altpred				Altpred
+	--allseq				Allseq
+	--pepreg				Pepreg
+	--hsout					Hsout
+	--htmout				hmout
+	--fasout				fasout
+	--hmmaln				hmmaln
+	--inanot				inanot
+	--getprec				getprec
+	-v[ersion]				Print program version and exit
+	                        { $self->version(0); }
+    -u[sage]			Print program usage and exit
+	                		{ $self->usage(0); }
+	--man					Print man page and exit
+	                        { pod2usage( -exitval => 0, -verbose => 2 ); }
+	-h[elp]					Print help and exit
+
+EOSPEC
+
+my $seqfile = $args->{'in'};
+my $hmmdb   = $args->{'hmm'};
+my $csv_stats = $args->{'out'};
+my $pfrdesc = $args->{'desc'};
+my $altpred = $args->{'altpred'};
+my $allseq = $args->{'allseq'};
+my $pepreg = $args->{'pepreg'};
+my $tblout = $args->{'hsout'};
+my $htmout = $args->{'htmout'};
+my $fasout = $args->{'fasout'};
+my $hmmaln = $args->{'hmmaln'};
+my $inanot = $args->{'inanot'};
+my $getprec = $args->{'getprec'};
+my $vers = $args->{'version'};
+my $help = $args->{'help'};
+my $man = $args->{'man'};
+
 
 # print help information ----------------------------------------------------
 if ($help) {
-	usage();
+	pod2usage(1);
+}
+
+if ($man){
+	pod2usage(-exitval => 0, -verbose => 2);
 }
 
 # print version information -------------------------------------------------
@@ -77,13 +104,13 @@ if ($vers) {
 }
 
 # error handling for empty hmm or sequence file -----------------------------
-if ( !defined $hmmdb && -s $hmmdb ) {
+if ( !defined $hmmdb && -s _ ) {
 	print {*STDERR} 'hmmcompete error: HMM database not found!'
 		. " Please check your input hmm file\n"
 		or croak "Cannot print to STDERR: $OS_ERROR";
 	usage();
 }
-if ( !defined $seqfile && -s $seqfile ) {
+if ( !defined $seqfile && -s _ ) {
 	print {*STDERR}
 		"hmmcompete error: Protein sequence database not found!\n"
 		. " Please check your input file\n"
@@ -173,7 +200,7 @@ while (<$hsfh>) {
 		. $SHARP
 		. $el[$HMM_PRED_SCORE] . ') ';
 
-#			$hitcount{$el[0]}->{'pred_score'} = $el[13] unless defined ($hitcount{$el[0]}->{'pred_score'});
+			#$hitcount{$el[0]}->{'pred_score'} = $el[13] unless defined ($hitcount{$el[0]}->{'pred_score'});
 	if ( $hitcount{ $el[0] }->{'pred_score'} <= $el[$HMM_PRED_SCORE] ) {
 		$hitcount{ $el[0] }->{'pred_score'}      = $el[$HMM_PRED_SCORE];
 		$hitcount{ $el[0] }->{'sequence_id'}     = $el[0];
@@ -422,10 +449,16 @@ unlink $hmmresfile;
 
 exit 0;
 
-# subroutine to print help information
+# SUBROUTINES ---------------------------------------------------------------
+
+# Subroutine to print help information
 sub usage {
 	exec 'perldoc', $PROGRAM_NAME;
 	exit;
+}
+
+sub man{
+	return pod2usage( -exitval => 0, -verbose => 2 );
 }
 
 # $seqhref=_getseq($fastadbFileName)
@@ -534,37 +567,34 @@ sub gethmmdesc {
 
 __END__
 
-
+=for hmmcompete hmmsearch HMMs altpred hmmsearch
 
 =head1 NAME
 
-hmmcompete - report the best classifier when multiple HMMs are matching the 
-				same peptide sequence
+hmmcompete - Report the best classifier when multiple 
+             HMMs are matching the same peptide sequence
 
 =head1 USAGE
 
-
-=head1 REQUIRED ARGUMENTS
-
-=head1 OPTIONS
-
-=head1 DIAGNOSTICS
-
-=head1 EXIT STATUS
-
-=head1 CONFIGURATION
-
-=head1 DEPENDENCIES
-
-=head1 INCOMPATIBILITIES
-
-=head1 BUGS AND LIMITATIONS
-
-=head1 LICENSE AND COPYRIGHT
+hmmcompete [options] --hmm <hmmDb> -in <seqFastaDb>
 
 =head1 SYNOPSIS
 
 hmmcompete [options] --hmm <hmmDb> -in <seqFastaDb>
+
+  Options:
+    --out, -o	Redirect the main human-readable output to a file <f> instead of the default stdout.
+	--help, -h	Print a brief reminder of command line usage and available options then exit.
+	--desc, -d	Display profile description in the main output when the description is present in the profile. Default: 'Off'.
+	--altpred	Display number of alternative profile HMM matching a sequence 
+			as well as a summarized description of each alternative match. Default: 'Off'.
+	--allseq	Also report sequences not matched by any model. Default: 'Off' i.e. only sequences matched by a profile in hmmDB are reported by default.
+	--pepreg	Display region of the target sequence that matched the best model hit. Default: 'Off'.
+	--hstblout	Save an output file similar to that of hmmsearch run with the --domtblout option. 
+				Will only report the best prediction/classification where available. 
+				Sequences not matched by any model are not reported. Alternative HMM matches are also ignored.
+	--htmout	Save a HTML version of the output. Useful for web integration.
+	--version, -v	Print hmmcompete version and exit
 
 =head1 DESCRIPTION
 
@@ -586,13 +616,13 @@ model giving the best domain bit score. Bit scores for alternative
 matches can also be reported using the --altpred option. The -o option 
 allows redirecting the main output, including throwing it away in /dev/null.
 
-=head2 Mandatory arguments
+=head1 REQUIRED ARGUMENTS
 
 	--hmm <f>	The profile database to be used for sequence classification. HMMER3 profiles.
 	-i|--in <f>	The sequence database to be classified. In FASTA format
 	
 
-=head2 Optional parameters list
+=head1 OPTIONS
 
 	-o|--out <f>	Redirect the main human-readable output to a file <f> instead of the default stdout.
 	-h|--help	Print a brief reminder of command line usage and available options then exit.
@@ -606,6 +636,29 @@ allows redirecting the main output, including throwing it away in /dev/null.
 				Sequences not matched by any model are not reported. Alternative HMM matches are also ignored.
 	--htmout <f>	Save a HTML version of the output. Useful for web integration.
 	-v	Print hmmcompete version and exit
+
+=head1 DEPENDENCIES
+
+  hmmer suite of program. See hmmer.org for more details.
+
+=head1 BUGS AND LIMITATIONS
+
+  No one to our knowledge. Please report any issue to the issue tracker at
+  https://github.com/koualab/hmmcompete/issues
+
+=head1 LICENSE AND COPYRIGHT
+
+
+=head1 INCOMPATIBILITIES
+
+  Not known to date.
+
+=head1 DIAGNOSTICS
+
+=head1 EXIT STATUS
+
+=head1 CONFIGURATION
+
 
 =head1 AUTHOR
 
