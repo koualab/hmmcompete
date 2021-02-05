@@ -48,25 +48,24 @@ my $args = Getopt::Declare->new(<<'EOSPEC') || exit 1;
 	[strict]
 
 	-i[n] <infile:if>		Specify input fasta file [required]
-	--hmm     				Specify hmm database [required]
-	-o[ut] <outfile:of>		Output file. If not specified standard
-	-d[esc]					Display description
-	--altpred				Altpred
-	--allseq				Allseq
-	--pepreg				Pepreg
-	--hsout					Hsout
-	--htmout				hmout
-	--fasout				fasout
-	--hmmaln				hmmaln
-	--inanot				inanot
-	--getprec				getprec
-	-v[ersion]				Print program version and exit
+	--hmm <hmmdb:if>		Specify hmm database [required]
+	-o[ut] <outfile:of>		Redirect the main human-readable output to a file <f> instead of the default stdout.
+	-d[esc]		Display profile description in the main output when the description is present in the profile. Default: 'Off'.
+	--altpred		Display number of alternative profile HMM matching a sequence as well as a summarized description of each alternative match. Default: 'Off'.
+	--allseq		Also report sequences not matched by any model. Default: 'Off' i.e. only sequences matched by a profile in hmmDB are reported by default.
+	--pepreg		Display region of the target sequence that matched the best model hit. Default: 'Off'.
+	--hsout		Hsout
+	--fasout	Annotate input fasta file with hmmcompete results.
+	--htmout		Save a HTML version of the output. Useful for web integration.
+
+	# Standard meta-options
+	-v[ersion]		Print hmmcompete version and exit
 	                        { $self->version(0); }
-    -u[sage]			Print program usage and exit
+    -u[sage]		Print program usage and exit
 	                		{ $self->usage(0); }
-	--man					Print man page and exit
+	--man		Print man page and exit
 	                        { pod2usage( -exitval => 0, -verbose => 2 ); }
-	-h[elp]					Print help and exit
+	-h[elp]		Print a brief reminder of command line usage and available options then exit.
 
 EOSPEC
 
@@ -78,44 +77,23 @@ my $altpred = $args->{'altpred'};
 my $allseq = $args->{'allseq'};
 my $pepreg = $args->{'pepreg'};
 my $tblout = $args->{'hsout'};
-my $htmout = $args->{'htmout'};
 my $fasout = $args->{'fasout'};
-my $hmmaln = $args->{'hmmaln'};
-my $inanot = $args->{'inanot'};
-my $getprec = $args->{'getprec'};
-my $vers = $args->{'version'};
-my $help = $args->{'help'};
-my $man = $args->{'man'};
+my $htmout = $args->{'htmout'};
 
 
-# print help information ----------------------------------------------------
-if ($help) {
-	pod2usage(1);
-}
-
-if ($man){
-	pod2usage(-exitval => 0, -verbose => 2);
-}
-
-# print version information -------------------------------------------------
-if ($vers) {
-	print "$hmmcompete_version \n" or croak "Cannot print: $OS_ERROR";
-	exit;
-}
-
-# error handling for empty hmm or sequence file -----------------------------
-if ( !defined $hmmdb && -s _ ) {
+# Error handling for empty hmm or sequence file -----------------------------
+if ( -s $hmmdb ) {
 	print {*STDERR} 'hmmcompete error: HMM database not found!'
-		. " Please check your input hmm file\n"
+		. " Please check your input hmm file. Do hmmcompete -h for details.\n"
 		or croak "Cannot print to STDERR: $OS_ERROR";
-	usage();
+	exit 0;
 }
-if ( !defined $seqfile && -s _ ) {
+if ( -s $seqfile ) {
 	print {*STDERR}
 		"hmmcompete error: Protein sequence database not found!\n"
-		. " Please check your input file\n"
+		. " Please check your input file. Do hmmcompete -h for details.\n"
 		or croak "Cannot print to STDERR: $OS_ERROR";
-	usage();
+	exit 0;
 }
 
 # Die while writing access is refused for requested output file
@@ -126,21 +104,7 @@ if ( defined $tblout ) {
 		or die "hmmcompete error: Cannot write file [$tblout]: $OS_ERROR\n";
 	$writehs++;
 }
-my $writehtm = 0;
-my $htmoutfh;
-if ( defined $htmout ) {
-	open $htmoutfh, '>', $htmout
-		or croak "hmmcompete error: Cannot write file [$htmout]: $OS_ERROR\n";
-	$writehtm++;
-}
 
-my $writefas = 0;
-my $fasoutfh;
-if ( defined $fasout ) {
-	open $fasoutfh, '>', $fasout
-		or die "hmmcompete error: Cannot write file [$fasout]: $OS_ERROR\n";
-	$writefas++;
-}
 
 # Standard output : write into $csvStats when -o option is chosen or send to standard output stream
 my $openres = 0;
@@ -379,9 +343,37 @@ if ($writehs) {
 }
 
 # fasta annotation of the initial query file is provided on request
-if ($writefas) {
-	my $seq_hdb = _getseq($seqfile);
-	my $hmm_hdb = _gethmmdesc($hmmdb);
+if (defined $fasout){
+	write_fasta('fasta_out.fa', @orderedentries, %hitcount);
+}
+
+# html output when requested
+if (defined $htmout) {
+	write_html('hmmcompete.html', %hitcount, @col, @orderedentries);
+}
+
+# clean around and exit
+unlink $hmmresfile;
+
+exit 0;
+
+
+
+
+
+# SUBROUTINES ---------------------------------------------------------------
+
+# write_fasta subroutine ----------------------------------------------------
+# Write a fasta output file when --fasout flag is used
+
+sub write_fasta{
+
+	my ($infile, @entries, %hits) = @_;
+
+	my $seq_hdb = getseq($seqfile);
+	my $hmm_hdb = gethmmdesc($hmmdb);
+	my %myhash;
+
 	for my $sqid (@orderedentries) {
 		my $hder = ">$sqid" . ' #';
 		if ( defined $hitcount{$sqid}->{'seq_annotation'} ) {
@@ -391,14 +383,40 @@ if ($writefas) {
 			.= $hitcount{$sqid}->{'classifier_name'}
 			. $SPACE
 			. $hmm_hdb->{ $hitcount{$sqid}->{'classifier_name'} } . "#\n";
-		print {$fasoutfh} $hder . $seq_hdb->{$sqid} . "\n"
-			or croak "Print failed: $OS_ERROR";
+
+		$myhash{$hder} = $seq_hdb->{$sqid};
 	}
+
+	open my $infh, '>', $infile or croak "Cannot open file [$infile]: $OS_ERROR";
+	for my $k (%myhash){
+		print {$infh} $k . $myhash{$k} . "\n" or croak "Print failed: $OS_ERROR";
+	}
+	close $infh or croak "Cannot close [$infh]: $OS_ERROR";
+
+	return;
 }
 
-# html output when requested
-if ($writehtm) {
-	my $html_header = <<'HTML_HEADER';
+# write_html subroutine -----------------------------------------------------
+# Write a html output file when --htmout flag is used
+
+sub write_html {
+
+	my ($filename, %whash, @wcol, @wordent) = @_;
+
+	open my $fhtml, '>', $filename
+		or croak "hmmcompete error: Cannot write file [$filename]: $OS_ERROR\n";
+
+	_writehtmldata($fhtml, %whash, @wcol, @wordent);
+	close $fhtml or croak "Cannot close $fhtml: $OS_ERROR";
+
+	return;
+}
+
+sub _writehtmldata {
+
+	my ($fh, %mhash, @mcol, @mordent) = @_;
+
+    my $html_header = <<'HTML_HEADER';
 	<!DOCTYPE HTML PUBLIC >
 	<html lang='en-US'>
 	<body>
@@ -409,81 +427,95 @@ HTML_HEADER
 	</html>
 HTML_FOOTER
 
-	print {$htmoutfh} $html_header or croak "Print failed: $OS_ERROR";
-	print {$htmoutfh} '<h1>hmmcompete Result </h1>'
-		or croak "Print failed: $OS_ERROR";
-	print {$htmoutfh} "<p>Predictions based on $hmmdb </p>"
-		or croak "Print failed: $OS_ERROR";
-	print {$htmoutfh} scalar keys %hitcount, ' sequences reported.<br/>'
-		or croak "Print failed: $OS_ERROR";
-	print {$htmoutfh} "\n <table  style=\"border:1px solid\">"
-		or croak "Print failed: $OS_ERROR";
-	unshift @col, 'sequence_id';
+	print {$fh} $html_header or croak "Print failed: $OS_ERROR";
+	print {$fh} '<h1>hmmcompete Result </h1>' or croak "Print failed: $OS_ERROR";
+	print {$fh} "<p>Predictions based on $hmmdb </p>" or croak "Print failed: $OS_ERROR";
+	print {$fh} scalar keys %mhash, ' sequences reported.<br/>' or croak "Print failed: $OS_ERROR";
+	print {$fh} "\n <table  style=\"border:1px solid\">" or croak "Print failed: $OS_ERROR";
+	unshift @mcol, 'sequence_id';
 
-	for my $c (@col) {
+	for my $c (@mcol) {
 		my $h = $c;
 		$h =~ s/_/ /msxg;
-		print {$htmoutfh} '<th style="border:1px solid">' . $h . '</th>'
+		print {$fh} '<th style="border:1px solid">' . $h . '</th>'
 			or croak "Print failed: $OS_ERROR";
 	}
-	print {$htmoutfh} '</tr>' or croak "Print failed: $OS_ERROR";
+	print {$fh} '</tr>' or croak "Print failed: $OS_ERROR";
 
-	for my $sqid (@orderedentries) {
-		print {$htmoutfh} '<tr>' or croak "Print failed: $OS_ERROR";
-		for my $c (@col) {
-			print {$htmoutfh} '<td style="border:1px solid">',
-				$hitcount{$sqid}->{$c}, "</td>\n"
-				or croak "Print failed: $OS_ERROR";
+	for my $sqid (@mordent) {
+		print {$fh} '<tr>' or croak "Print failed: $OS_ERROR";
+		for my $c (@mcol) {
+			print {$fh} '<td style="border:1px solid">',
+				$mhash{$sqid}->{$c}, "</td>\n"
+					or croak "Print failed: $OS_ERROR";
 		}
-		print {$htmoutfh} '</tr>' or croak "Print failed: $OS_ERROR";
+		print {$fh} '</tr>' or croak "Print failed: $OS_ERROR";
 	}
-	print {$htmoutfh} "</table><br/><br/>\n"
+	print {$fh} "</table><br/><br/>\n"
 		or croak "Print failed: $OS_ERROR";
-	print {$htmoutfh} $html_footer or croak "Print failed: $OS_ERROR";
+	print {$fh} $html_footer or croak "Print failed: $OS_ERROR";
 
-	close $htmoutfh or croak "Cannot close $htmoutfh: $OS_ERROR";
+	close $fh or croak "Cannot close $fh: $OS_ERROR";
+
+	return;
+
 }
 
-# clean around and exit
-unlink $hmmresfile;
 
-exit 0;
-
-# SUBROUTINES ---------------------------------------------------------------
-
-# Subroutine to print help information
-sub usage {
-	exec 'perldoc', $PROGRAM_NAME;
-	exit;
-}
-
-sub man{
-	return pod2usage( -exitval => 0, -verbose => 2 );
-}
-
+# getseq subroutine ---------------------------------------------------------
 # $seqhref=_getseq($fastadbFileName)
 # return a hashref $entries->{$id}=$seq of sequences from a FASTA file
+
 sub getseq {
+
 	my ($file) = @_;
 	open my $fh, '<', $file
 		or croak
 		"functions::_getseq failed. Cannot open the file [$file]: $OS_ERROR\n";
+	my %entries = _parsegetseq($fh);
+	close $fh or croak "Cannot close $fh: $OS_ERROR";
+	return \%entries;
+}
+
+sub _parsegetseq {
+
+	my ($fh) = @_;
+
 	local $INPUT_RECORD_SEPARATOR = "\n>";
 	my %entries;
 	while (<$fh>) {
 		chomp( my $entry = $_ );
+		my $ent;
 		$entry =~ s/>//msxg;
 		$entry =~ s/[\n\r]/\n/msxg;
 		my ( $id, $seq ) = split /\n/msx, $entry, 2;
-		$id =~ /(\S+)\s?/msx;
-		my $ent = $1;
+		if ($id =~ /(\S+)\s?/msx){
+			$ent = $1;
+		} else {
+			$ent = $EMPTY;
+		}
 		$seq =~ s/[\s\n\r]//msxg;
 
 		#        $seq =~ s/[BJOUZ]/X/ig;
-		if ( defined $ent && defined $seq ) {
+		# Since perl 5.12, length don't return a warning
+		# when it meet an undef value. So it can be used
+		# to check if a value is undef or empty string :)
+		if ( ! length $ent && defined $seq ) {
 			$entries{$ent} = uc $seq;
 		}
 	}
+	return %entries;
+
+}
+
+# getseqannot subroutine ----------------------------------------------------
+
+sub getseqannot {
+	my ($file) = @_;
+	open my $fh, '<', $file
+		or croak
+		"functions::getseqannot failed. Cannot open the file [$file]: $OS_ERROR\n";
+	my %entries = _parsegetseqannot($fh);
 	close $fh or croak "Cannot close $fh: $OS_ERROR";
 	return \%entries;
 }
@@ -513,12 +545,20 @@ sub _parsegetseqannot {
 	return %entries;
 }
 
-sub getseqannot {
+
+# gethmmdesc subroutine -----------------------------------------------------
+# $hmmhref = gethmmdesc($hmmDbFileName)
+# return a hashref $entries->{$hmmName} = $hmmDesc with profile 
+# HMM description from a HMM file
+
+
+sub gethmmdesc {
 	my ($file) = @_;
+	local $INPUT_RECORD_SEPARATOR = q{//};
 	open my $fh, '<', $file
 		or croak
-		"functions::getseqannot failed. Cannot open the file [$file]: $OS_ERROR\n";
-	my %entries = _parsegetseqannot($fh);
+		"function gethmmdesc failed. Cannot open the file [$file]: $OS_ERROR\n";
+	my %entries = _parsegethmmdesc($fh);
 	close $fh or croak "Cannot close $fh: $OS_ERROR";
 	return \%entries;
 }
@@ -552,22 +592,13 @@ sub _parsegethmmdesc {
 
 }
 
-# $hmmhref = gethmmdesc($hmmDbFileName)
-# return a hashref $entries->{$hmmName} = $hmmDesc with profile HMM description from a HMM file
-sub gethmmdesc {
-	my ($file) = @_;
-	local $INPUT_RECORD_SEPARATOR = q{//};
-	open my $fh, '<', $file
-		or croak
-		"function gethmmdesc failed. Cannot open the file [$file]: $OS_ERROR\n";
-	my %entries = _parsegethmmdesc($fh);
-	close $fh or croak "Cannot close $fh: $OS_ERROR";
-	return \%entries;
-}
+
+
+
 
 __END__
 
-=for hmmcompete hmmsearch HMMs altpred hmmsearch
+=for hmmcompete hmmsearch HMMs altpred hmmsearch KOUA
 
 =head1 NAME
 
