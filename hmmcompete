@@ -54,8 +54,12 @@ my $args = Getopt::Declare->new(<<'EOSPEC') || exit 1;
 	--altpred		Display number of alternative profile HMM matching a sequence as well as a summarized description of each alternative match. Default: 'Off'.
 	--allseq		Also report sequences not matched by any model. Default: 'Off' i.e. only sequences matched by a profile in hmmDB are reported by default.
 	--pepreg		Display region of the target sequence that matched the best model hit. Default: 'Off'.
+	--getprec	Get precursors region that matched the best model hit. Default: 'Off'
+	            [requires: --pepreg]
 	--hsout		Hsout
 	--fasout	Annotate input fasta file with hmmcompete results.
+	--inanot	Add annotation to input sequence header.
+	--hmmaln	Add alignment to final file.
 	--htmout		Save a HTML version of the output. Useful for web integration.
 
 	# Standard meta-options
@@ -69,17 +73,19 @@ my $args = Getopt::Declare->new(<<'EOSPEC') || exit 1;
 
 EOSPEC
 
-my $seqfile = $args->{'in'};
-my $hmmdb   = $args->{'hmm'};
+my $seqfile   = $args->{'in'};
+my $hmmdb     = $args->{'hmm'};
 my $csv_stats = $args->{'out'};
-my $pfrdesc = $args->{'desc'};
-my $altpred = $args->{'altpred'};
-my $allseq = $args->{'allseq'};
-my $pepreg = $args->{'pepreg'};
-my $tblout = $args->{'hsout'};
-my $fasout = $args->{'fasout'};
-my $htmout = $args->{'htmout'};
-
+my $pfrdesc   = $args->{'desc'};
+my $altpred   = $args->{'altpred'};
+my $allseq    = $args->{'allseq'};
+my $pepreg    = $args->{'pepreg'};
+my $tblout    = $args->{'hsout'};
+my $fasout    = $args->{'fasout'};
+my $htmout    = $args->{'htmout'};
+my $hmmaln    = $args->{'hmmaln'};
+my $getprec   = $args->{'getprec'};
+my $inanot    = $args->{'inanot'};
 
 # Error handling for empty hmm or sequence file -----------------------------
 if ( -s $hmmdb ) {
@@ -104,7 +110,6 @@ if ( defined $tblout ) {
 		or die "hmmcompete error: Cannot write file [$tblout]: $OS_ERROR\n";
 	$writehs++;
 }
-
 
 # Standard output : write into $csvStats when -o option is chosen or send to standard output stream
 my $openres = 0;
@@ -164,7 +169,7 @@ while (<$hsfh>) {
 		. $SHARP
 		. $el[$HMM_PRED_SCORE] . ') ';
 
-			#$hitcount{$el[0]}->{'pred_score'} = $el[13] unless defined ($hitcount{$el[0]}->{'pred_score'});
+#$hitcount{$el[0]}->{'pred_score'} = $el[13] unless defined ($hitcount{$el[0]}->{'pred_score'});
 	if ( $hitcount{ $el[0] }->{'pred_score'} <= $el[$HMM_PRED_SCORE] ) {
 		$hitcount{ $el[0] }->{'pred_score'}      = $el[$HMM_PRED_SCORE];
 		$hitcount{ $el[0] }->{'sequence_id'}     = $el[0];
@@ -185,11 +190,6 @@ close $hsfh or croak "Cannot close $hsfh: $OS_ERROR";
 
 # List selected columns to output
 my @col = ('classifier_name');
-
-# the getprec option requires pepreg to be set.
-if ( defined $getprec ) {
-	$pepreg++;
-}
 
 # add information for target region when requested
 if ( defined $pepreg ) {
@@ -223,7 +223,7 @@ if ( defined $pepreg ) {
 # add columns for HMM match coordinates and region alignment based on the HMM if asked
 if ( defined $hmmaln ) {
 	push @col, qw( hmm_from  hmm_to  region_aln );
-	my $seq_hdb = _getseq($seqfile);
+	my $seq_hdb = getseq($seqfile);
 
 	# add region alignment
 	for my $sqid ( keys %hitcount ) {
@@ -286,7 +286,9 @@ if ( defined $allseq ) {
 	}
 }
 
-# add input sequence annotation when asked. annotation should be present in fasta header as >seq_id #annotation#
+# add input sequence annotation when asked. annotation should be present in
+# fasta header as >seq_id #annotation#
+
 if ( defined $inanot ) {
 	unshift @col, 'seq_annotation';
 	my $annlab = _getseqannot($seqfile);
@@ -295,7 +297,7 @@ if ( defined $inanot ) {
 	}
 }
 
-# Prepare output
+# Prepare output ------------------------------------------------------------
 my @orderedentries;
 my %prfhitlist;
 for my $h ( keys %hitcount ) {
@@ -317,17 +319,16 @@ foreach my $hmmname ( sort keys %prfhitlist ) {
 if ($writehs) {
 	print {$hsoutfh} $hscom or croak "Print failed: $OS_ERROR";
 }
-print {$csvfh} "sequence_id\t" or croak "Print failed: $OS_ERROR";
-print {$csvfh} join "\t", @col or croak "Print failed: $OS_ERROR";
-print {$csvfh} "\n" or croak "Print failed: $OS_ERROR";
+pmsg("sequence_id\t");
+pmsg( join "\t", @col );
+pmsg("\n");
 
 for my $sqid (@orderedentries) {
-	print {$csvfh} $sqid or croak "Print failed: $OS_ERROR";
+	pmsg($sqid);
 	for my $c (@col) {
-		print {$csvfh} "\t" . $hitcount{$sqid}->{$c}
-			or croak "Print failed: $OS_ERROR";
+		pmsg( "\t" . $hitcount{$sqid}->{$c} );
 	}
-	print {$csvfh} "\n" or croak "Print failed: $OS_ERROR";
+	pmsg("\n");
 
 	# write hmmsearch-like output
 	if ($writehs) {
@@ -343,13 +344,13 @@ if ($writehs) {
 }
 
 # fasta annotation of the initial query file is provided on request
-if (defined $fasout){
-	write_fasta('fasta_out.fa', @orderedentries, %hitcount);
+if ( defined $fasout ) {
+	write_fasta( 'fasta_out.fa', @orderedentries, %hitcount );
 }
 
 # html output when requested
-if (defined $htmout) {
-	write_html('hmmcompete.html', %hitcount, @col, @orderedentries);
+if ( defined $htmout ) {
+	write_html( 'hmmcompete.html', %hitcount, @col, @orderedentries );
 }
 
 # clean around and exit
@@ -357,18 +358,30 @@ unlink $hmmresfile;
 
 exit 0;
 
-
-
-
-
 # SUBROUTINES ---------------------------------------------------------------
+
+# pmsg subroutine -----------------------------------------------------------
+# Print to file or stdout according to declared option
+
+sub pmsg {
+
+	my (@text) = @_;
+	my $output = 'hmmcompete_res.txt';
+
+	open my $outfh, ( $csv_stats ? ">>$output" : '>&STDOUT' )
+		or croak "Open output file failed: $OS_ERROR";
+	print {$outfh} @text or croak "Cannot print to file [$outfh]: $OS_ERROR";
+	close $outfh         or croak "Cannot close output file: $OS_ERROR";
+
+	return;
+}
 
 # write_fasta subroutine ----------------------------------------------------
 # Write a fasta output file when --fasout flag is used
 
-sub write_fasta{
+sub write_fasta {
 
-	my ($infile, @entries, %hits) = @_;
+	my ( $infile, @entries, %hits ) = @_;
 
 	my $seq_hdb = getseq($seqfile);
 	my $hmm_hdb = gethmmdesc($hmmdb);
@@ -387,9 +400,11 @@ sub write_fasta{
 		$myhash{$hder} = $seq_hdb->{$sqid};
 	}
 
-	open my $infh, '>', $infile or croak "Cannot open file [$infile]: $OS_ERROR";
-	for my $k (%myhash){
-		print {$infh} $k . $myhash{$k} . "\n" or croak "Print failed: $OS_ERROR";
+	open my $infh, '>', $infile
+		or croak "Cannot open file [$infile]: $OS_ERROR";
+	for my $k (%myhash) {
+		print {$infh} $k . $myhash{$k} . "\n"
+			or croak "Print failed: $OS_ERROR";
 	}
 	close $infh or croak "Cannot close [$infh]: $OS_ERROR";
 
@@ -401,12 +416,13 @@ sub write_fasta{
 
 sub write_html {
 
-	my ($filename, %whash, @wcol, @wordent) = @_;
+	my ( $filename, %whash, @wcol, @wordent ) = @_;
 
 	open my $fhtml, '>', $filename
-		or croak "hmmcompete error: Cannot write file [$filename]: $OS_ERROR\n";
+		or croak
+		"hmmcompete error: Cannot write file [$filename]: $OS_ERROR\n";
 
-	_writehtmldata($fhtml, %whash, @wcol, @wordent);
+	_writehtmldata( $fhtml, %whash, @wcol, @wordent );
 	close $fhtml or croak "Cannot close $fhtml: $OS_ERROR";
 
 	return;
@@ -414,9 +430,9 @@ sub write_html {
 
 sub _writehtmldata {
 
-	my ($fh, %mhash, @mcol, @mordent) = @_;
+	my ( $fh, %mhash, @mcol, @mordent ) = @_;
 
-    my $html_header = <<'HTML_HEADER';
+	my $html_header = <<'HTML_HEADER';
 	<!DOCTYPE HTML PUBLIC >
 	<html lang='en-US'>
 	<body>
@@ -428,10 +444,14 @@ HTML_HEADER
 HTML_FOOTER
 
 	print {$fh} $html_header or croak "Print failed: $OS_ERROR";
-	print {$fh} '<h1>hmmcompete Result </h1>' or croak "Print failed: $OS_ERROR";
-	print {$fh} "<p>Predictions based on $hmmdb </p>" or croak "Print failed: $OS_ERROR";
-	print {$fh} scalar keys %mhash, ' sequences reported.<br/>' or croak "Print failed: $OS_ERROR";
-	print {$fh} "\n <table  style=\"border:1px solid\">" or croak "Print failed: $OS_ERROR";
+	print {$fh} '<h1>hmmcompete Result </h1>'
+		or croak "Print failed: $OS_ERROR";
+	print {$fh} "<p>Predictions based on $hmmdb </p>"
+		or croak "Print failed: $OS_ERROR";
+	print {$fh} scalar keys %mhash, ' sequences reported.<br/>'
+		or croak "Print failed: $OS_ERROR";
+	print {$fh} "\n <table  style=\"border:1px solid\">"
+		or croak "Print failed: $OS_ERROR";
 	unshift @mcol, 'sequence_id';
 
 	for my $c (@mcol) {
@@ -447,7 +467,7 @@ HTML_FOOTER
 		for my $c (@mcol) {
 			print {$fh} '<td style="border:1px solid">',
 				$mhash{$sqid}->{$c}, "</td>\n"
-					or croak "Print failed: $OS_ERROR";
+				or croak "Print failed: $OS_ERROR";
 		}
 		print {$fh} '</tr>' or croak "Print failed: $OS_ERROR";
 	}
@@ -460,7 +480,6 @@ HTML_FOOTER
 	return;
 
 }
-
 
 # getseq subroutine ---------------------------------------------------------
 # $seqhref=_getseq($fastadbFileName)
@@ -489,9 +508,10 @@ sub _parsegetseq {
 		$entry =~ s/>//msxg;
 		$entry =~ s/[\n\r]/\n/msxg;
 		my ( $id, $seq ) = split /\n/msx, $entry, 2;
-		if ($id =~ /(\S+)\s?/msx){
+		if ( $id =~ /(\S+)\s?/msx ) {
 			$ent = $1;
-		} else {
+		}
+		else {
 			$ent = $EMPTY;
 		}
 		$seq =~ s/[\s\n\r]//msxg;
@@ -500,7 +520,7 @@ sub _parsegetseq {
 		# Since perl 5.12, length don't return a warning
 		# when it meet an undef value. So it can be used
 		# to check if a value is undef or empty string :)
-		if ( ! length $ent && defined $seq ) {
+		if ( !length $ent && defined $seq ) {
 			$entries{$ent} = uc $seq;
 		}
 	}
@@ -545,12 +565,10 @@ sub _parsegetseqannot {
 	return %entries;
 }
 
-
 # gethmmdesc subroutine -----------------------------------------------------
 # $hmmhref = gethmmdesc($hmmDbFileName)
-# return a hashref $entries->{$hmmName} = $hmmDesc with profile 
+# return a hashref $entries->{$hmmName} = $hmmDesc with profile
 # HMM description from a HMM file
-
 
 sub gethmmdesc {
 	my ($file) = @_;
@@ -591,10 +609,6 @@ sub _parsegethmmdesc {
 	return %entries;
 
 }
-
-
-
-
 
 __END__
 
