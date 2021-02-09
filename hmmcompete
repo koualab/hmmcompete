@@ -1,13 +1,10 @@
 #!/usr/bin/env perl
 
-# Version 0.1: 2017, May 1
-# Version 0.2: 2021, Feb 4
-
 use strict;
 use warnings;
 
 use Data::Dumper;
-use Getopt::Long;
+use File::Spec;
 use Getopt::Declare;
 use Carp qw( croak );
 use English qw( -no_match_vars );
@@ -18,6 +15,7 @@ my $EMPTY  = q{};
 my $SPACE  = q{ };
 my $HYPHEN = q{-};
 my $SHARP  = q{#};
+my $TEMP   = File::Spec->tmpdir();
 
 our $VERSION = '0.2';
 
@@ -32,44 +30,34 @@ Readonly my $ALIGNMENT_TO    => 18;
 Readonly my $HMM_FROM        => 15;
 Readonly my $HMM_TO          => 16;
 
-#############################################################################
-#               GENERAL SETTINGS: CUSTOMIZE TO YOUR SITE
-#############################################################################
-my $TEMP = '/tmp';
-
-#############################################################################
-#               NOTHING SHOULD NEED CHANGING BELOW THIS LINE!
-#############################################################################
-my $hmmcompete_version = 'hmmcompete ' . $VERSION;
-
 # Process command line ------------------------------------------------------
 my $args = Getopt::Declare->new(<<'EOSPEC') || exit 1;
 
 	[strict]
 
-	-i[n] <infile:if>		Specify input fasta file [required]
-	--hmm <hmmdb:if>		Specify hmm database [required]
-	-o[ut] <outfile:of>		Redirect the main human-readable output to a file <f> instead of the default stdout.
-	-d[esc]		Display profile description in the main output when the description is present in the profile. Default: 'Off'.
-	--altpred		Display number of alternative profile HMM matching a sequence as well as a summarized description of each alternative match. Default: 'Off'.
-	--allseq		Also report sequences not matched by any model. Default: 'Off' i.e. only sequences matched by a profile in hmmDB are reported by default.
-	--pepreg		Display region of the target sequence that matched the best model hit. Default: 'Off'.
+	-i[n] <infile:if>	Specify input fasta file [required]
+	--hmm <hmmdb:if>	Specify hmm database [required]
+
+	# Options
+	-o[ut] <outfile:of>	Redirect output to a file.
+	-d[esc]		Display profile description when the description is present in the profile. Default: 'Off'.
+	--altpred	Display number of alternative profile HMM and a summarized description. Default: 'Off'.
+	--allseq	Also report sequences not matched by any model. Default: 'Off'.
+	--pepreg	Display region of the target sequence that matched the best model hit. Default: 'Off'.
 	--getprec	Get precursors region that matched the best model hit. Default: 'Off'
 	            [requires: --pepreg]
 	--hsout		Hsout
 	--fasout	Annotate input fasta file with hmmcompete results.
 	--inanot	Add annotation to input sequence header.
 	--hmmaln	Add alignment to final file.
-	--htmout		Save a HTML version of the output. Useful for web integration.
+	--htmout	Save a HTML version of the output.
 
 	# Standard meta-options
-	-v[ersion]		Print hmmcompete version and exit
+	-v[ersion]	Print hmmcompete version and exit
 	                        { $self->version(0); }
-    -u[sage]		Print program usage and exit
-	                		{ $self->usage(0); }
 	--man		Print man page and exit
 	                        { pod2usage( -exitval => 0, -verbose => 2 ); }
-	-h[elp]		Print a brief reminder of command line usage and available options then exit.
+	-h[elp]		Print help and exit.
 
 EOSPEC
 
@@ -102,7 +90,7 @@ if ( -s $seqfile ) {
 	exit 0;
 }
 
-# Die while writing access is refused for requested output file
+# Die while writing access is refused for requested output file ------------
 my $writehs = 0;
 my $hsoutfh;
 if ( defined $tblout ) {
@@ -111,7 +99,8 @@ if ( defined $tblout ) {
 	$writehs++;
 }
 
-# Standard output : write into $csvStats when -o option is chosen or send to standard output stream
+# Standard output : write into $csvStats when -o option is -----------------
+# chosen or send to standard output stream
 my $openres = 0;
 my $csvfh;
 $openres = open $csvfh, '>', $csv_stats
@@ -124,11 +113,10 @@ if ( defined $openres ) {
 }
 
 # Temporary output files
-my $hmmresfile = $TEMP . '/hmmres_' . $PROCESS_ID . '.tbl';
+my $hmmresfile
+	= File::Spec->catfile( $TEMP, 'hmmres_' . $PROCESS_ID . '.tbl' );
 
-######################################################
-##  Main
-######################################################
+# Main Program --------------------------------------------------------------
 
 # Run hmmsearch
 ( system "hmmsearch --domtblout $hmmresfile $hmmdb  $seqfile  >/dev/null" )
@@ -184,14 +172,12 @@ while (<$hsfh>) {
 }
 close $hsfh or croak "Cannot close $hsfh: $OS_ERROR";
 
-##############################################
-## Output Classification Results
-##############################################
+# Output classification results ---------------------------------------------
 
 # List selected columns to output
 my @col = ('classifier_name');
 
-# add information for target region when requested
+# Add information for target region when requested --------------------------
 if ( defined $pepreg ) {
 
 	# add to column list
@@ -220,7 +206,9 @@ if ( defined $pepreg ) {
 	}
 }
 
-# add columns for HMM match coordinates and region alignment based on the HMM if asked
+# Add columns for HMM match coordinates and region alignment ----------------
+# based on the HMM if asked
+
 if ( defined $hmmaln ) {
 	push @col, qw( hmm_from  hmm_to  region_aln );
 	my $seq_hdb = getseq($seqfile);
@@ -248,7 +236,7 @@ if ( defined $hmmaln ) {
 	}
 }
 
-# add HMM description when requested
+# Add HMM description when requested ----------------------------------------
 if ( defined $pfrdesc ) {
 
 	# add to column list
@@ -264,12 +252,12 @@ if ( defined $pfrdesc ) {
 	}
 }
 
-# add columns for alternative HMM matches on request
+# Add columns for alternative HMM matches on request ------------------------
 if ( defined $altpred ) {
 	push @col, qw( matches_count  matches_position );
 }
 
-# add information for non classified peptides when requested
+# Add information for non classified peptides when requested ----------------
 if ( defined $allseq ) {
 
 	# Process FASTA file
@@ -286,8 +274,8 @@ if ( defined $allseq ) {
 	}
 }
 
-# add input sequence annotation when asked. annotation should be present in
-# fasta header as >seq_id #annotation#
+# Add input sequence annotation when asked ----------------------------------
+# Annotation should be present in fasta header as >seq_id #annotation#
 
 if ( defined $inanot ) {
 	unshift @col, 'seq_annotation';
@@ -315,7 +303,8 @@ foreach my $hmmname ( sort keys %prfhitlist ) {
 	}
 }
 
-# hmmsearch output is written here when requested. This saves a second iteration through %hitcount.
+# Adding Hmmsearch output is written here when requested --------------------
+# This saves a second iteration through %hitcount.
 if ($writehs) {
 	print {$hsoutfh} $hscom or croak "Print failed: $OS_ERROR";
 }
@@ -343,17 +332,17 @@ if ($writehs) {
 	close $hsoutfh or croak "Cannot close file: $OS_ERROR";
 }
 
-# fasta annotation of the initial query file is provided on request
+# Adding fasta annotation of the initial query file when requested ----------
 if ( defined $fasout ) {
 	write_fasta( 'fasta_out.fa', @orderedentries, %hitcount );
 }
 
-# html output when requested
+# Rendering html output when requested --------------------------------------
 if ( defined $htmout ) {
 	write_html( 'hmmcompete.html', %hitcount, @col, @orderedentries );
 }
 
-# clean around and exit
+# Clean around and exit -----------------------------------------------------
 unlink $hmmresfile;
 
 exit 0;
@@ -612,7 +601,7 @@ sub _parsegethmmdesc {
 
 __END__
 
-=for hmmcompete hmmsearch HMMs altpred hmmsearch KOUA
+=for hmmcompete hmmsearch HMMs altpred hmmsearch KOUA perl
 
 =head1 NAME
 
